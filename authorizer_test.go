@@ -10,27 +10,25 @@ import (
 )
 
 type project struct{}
+type object struct{}
 type authCtx struct{}
 
 func (a *authCtx) Role() error {
 	return nil
 }
 
-type policyWithoutStruct struct{}
+type policyMethodParameterMismatch struct{}
+
+func (p *policyMethodParameterMismatch) Create(ctx context.Context, o object) error {
+	return nil
+}
+
+type policyWithoutMethod struct{}
 
 type projectPolicy struct {
 }
 
-func (pp *projectPolicy) Delete(ctx context.Context, args ...interface{}) error {
-	// retrieve ctx
-
-	// first arg is resource.
-
-	// second arg is anything I choose.
-	return nil
-}
-
-func (pp *projectPolicy) Create(ctx context.Context, r interface{}) error {
+func (pp *projectPolicy) Create(ctx context.Context, p *project) error {
 	// retrieve authCtx
 	authCtx := ctx.Value(AuthCtxKey).(*authCtx)
 
@@ -43,7 +41,7 @@ func (pp *projectPolicy) Create(ctx context.Context, r interface{}) error {
 	return nil
 }
 
-func (pp *projectPolicy) XDelete(ctx context.Context, p project) error {
+func (pp *projectPolicy) Delete(ctx context.Context, p project) error {
 
 	// print resource
 	fmt.Println(p)
@@ -56,29 +54,36 @@ func Test_Authorize(t *testing.T) {
 		authCtx       interface{}
 		policy        interface{}
 		method        string
-		args          []interface{}
+		resource      interface{}
 		expectedError error
 	}{
 		"should_grant_access_to_a_valid_policy": {
 			authCtx:       &authCtx{},
-			policy:        projectPolicy{},
+			policy:        &projectPolicy{},
 			method:        "Create",
-			args:          []interface{}{&project{}},
+			resource:      &project{},
 			expectedError: nil,
 		},
 		"should_return_error_when_policy_does_not_have_method": {
 			authCtx:       &authCtx{},
-			policy:        &policyWithoutStruct{},
+			policy:        &policyWithoutMethod{},
 			method:        "InvalidMethod",
-			args:          []interface{}{},
+			resource:      nil,
 			expectedError: ErrMethodNotAvailable,
 		},
 		"should_return_error_when_policy_is_not_a_struct": {
 			authCtx:       &authCtx{},
 			policy:        "subomi",
 			method:        "InvalidMethodXXX",
-			args:          []interface{}{},
+			resource:      nil,
 			expectedError: ErrMethodNotAvailable,
+		},
+		"should_return_error_when_there_is_a_concrete_type_mismatch": {
+			authCtx:       &authCtx{},
+			policy:        &policyMethodParameterMismatch{},
+			method:        "Create",
+			resource:      &project{},
+			expectedError: ErrInvalidResource,
 		},
 	}
 
@@ -89,11 +94,13 @@ func Test_Authorize(t *testing.T) {
 			ctx := authz.SetAuthCtx(context.Background(), tc.authCtx)
 
 			// Act.
-			err := authz.Authorize(ctx, tc.policy, tc.method, tc.args)
+			err := authz.Authorize(ctx, tc.policy, tc.method, tc.resource)
 
 			// Assert.
 			if tc.expectedError != nil {
 				require.ErrorIs(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

@@ -11,6 +11,10 @@ import (
 var (
 	// ErrMethodNotAvailable is the error we return when we can't find a method on a policy.
 	ErrMethodNotAvailable = errors.New("method not available on policy")
+
+	// ErrInvalidResource is the error we return when resource does not match method signature
+	// expected type.
+	ErrInvalidResource = errors.New("resource does not match")
 )
 
 var AuthCtxKey = "GoAuthzCtx"
@@ -27,7 +31,7 @@ func (a *Authorizer) SetAuthCtx(ctx context.Context, authCtx interface{}) contex
 	return context.WithValue(ctx, AuthCtxKey, authCtx)
 }
 
-func (a *Authorizer) Authorize(ctx context.Context, p interface{}, m string, args ...interface{}) error {
+func (a *Authorizer) Authorize(ctx context.Context, p interface{}, m string, res interface{}) error {
 	// 1. reflect policy struct.
 	v := reflect.ValueOf(p)
 
@@ -40,11 +44,17 @@ func (a *Authorizer) Authorize(ctx context.Context, p interface{}, m string, arg
 		return ErrMethodNotAvailable
 	}
 
-	// 4. Identify the number of methods required
-	in := []reflect.Value{reflect.ValueOf(ctx)}
+	// 4. Validate resource
+	mT := me.Type().In(1).Name()
+	argT := reflect.TypeOf(res).Name()
 
-	for _, v := range args {
-		in = append(in, reflect.ValueOf(v))
+	if mT != argT {
+		return ErrInvalidResource
+	}
+
+	in := []reflect.Value{
+		reflect.ValueOf(ctx),
+		reflect.ValueOf(res),
 	}
 
 	// 5. Return error
