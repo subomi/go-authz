@@ -9,14 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Resource Stub.
 type project struct{}
 type object struct{}
+
+// Authorization Context Stub.
 type authCtx struct{}
 
 func (a *authCtx) Role() error {
 	return nil
 }
 
+// Policy Stub
 type policyMethodParameterMismatch struct{}
 
 func (p *policyMethodParameterMismatch) Create(ctx context.Context, o object) error {
@@ -26,13 +30,11 @@ func (p *policyMethodParameterMismatch) Create(ctx context.Context, o object) er
 type policyWithoutMethod struct{}
 
 type projectPolicy struct {
+	authCtx authCtx
 }
 
 func (pp *projectPolicy) Create(ctx context.Context, p *project) error {
-	// retrieve authCtx
-	authCtx := ctx.Value(AuthCtxKey).(*authCtx)
-
-	if authCtx.Role() != nil {
+	if pp.authCtx.Role() != nil {
 		// refuse access.
 		return errors.New("Unauthorised")
 	}
@@ -41,12 +43,16 @@ func (pp *projectPolicy) Create(ctx context.Context, p *project) error {
 	return nil
 }
 
-func (pp *projectPolicy) Delete(ctx context.Context, p project) error {
+func (pp *projectPolicy) Delete(ctx context.Context, authCtx authCtx, p project) error {
 
 	// print resource
 	fmt.Println(p)
 
 	return nil
+}
+
+func (pp *projectPolicy) SetAuthCtx(ctx authCtx) {
+	pp.authCtx = ctx
 }
 
 func Test_Authorize(t *testing.T) {
@@ -63,6 +69,13 @@ func Test_Authorize(t *testing.T) {
 			method:        "Create",
 			resource:      &project{},
 			expectedError: nil,
+		},
+		"should_return_error_on_valid_policy_when_auth_ctx_is_missing": {
+			authCtx:       nil,
+			policy:        &projectPolicy{},
+			method:        "Create",
+			resource:      &project{},
+			expectedError: ErrInvalidAuthCtx,
 		},
 		"should_return_error_when_policy_does_not_have_method": {
 			authCtx:       &authCtx{},
@@ -94,7 +107,7 @@ func Test_Authorize(t *testing.T) {
 			ctx := authz.SetAuthCtx(context.Background(), tc.authCtx)
 
 			// Act.
-			err := authz.Authorize(ctx, tc.policy, tc.method, tc.resource)
+			err := authz.Authorize(ctx, tc.resource, tc.policy, tc.method)
 
 			// Assert.
 			if tc.expectedError != nil {
