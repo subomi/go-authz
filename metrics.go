@@ -7,7 +7,7 @@ const namespace = "goauthz"
 
 // Define metrics.
 type metrics struct {
-	authorizationRequestsHistogram prometheus.HistogramVec
+	authorizationRequestsHistogram *prometheus.HistogramVec
 }
 
 func NewMetrics(reg prometheus.Registerer) *metrics {
