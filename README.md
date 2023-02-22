@@ -11,23 +11,29 @@ package main
 
 // Policy Definition
 type ProjectPolicy {
-    authCtx authCtx
+    AuthCtx *authCtx
+    AuthCtx authCtx
 }
 
-func NewProjectPolicy(authCtx authCtx, args ...interface{}) *ProjectPolicy {
-    return &ProjectPolicy{authCtx: authCtx}
-}
-
-func (pp *ProjectPolicy) GetAll(ctx context.Context) error {
+func (pp *ProjectPolicy) GetAll(ctx context.Context, args ...interface{}) error {
     // logic for granting access.
     return nil
+}
+
+func (pp *ProjectPolicy) Get(ctx context.Context, resource Project, args ...interface{}) error {
+
 }
 
 func main() {
     a := authz.NewAuthorizer()
 
     // Register Policies.
-    a.RegisterPolicy("project", &ProjectPolicy{})
+    a.RegisterPolicy("project", func() interface{} {
+        return &policies.ProjectPolicyOpts{
+		    OrganisationRepo:       mongo.NewOrgRepo(a.A.Store),
+		    OrganisationMemberRepo: mongo.NewOrgMemberRepo(a.A.Store),
+	    }
+    })
 
     // Set authCtx in context ideally immediately after authentication.
     err := a.SetAuthCtx(r.Context(), authCtx)

@@ -25,14 +25,34 @@ var (
 
 	// ErrInvalidAuthCtx is the error we return when an invalid authctx is sent in.
 	ErrInvalidAuthCtx = errors.New("an invalid auth context was provided")
+
+	// ErrAuthCtxTypeMismatch is returned if the policy's authCtx and the passed in authCtx des not mathc.
+	ErrAuthCtxTypeMismatch = errors.New("authCtx type does not match")
+
+	// ErrInvalidAuthCtxType is returned when the authCtx does not match the config.
+	ErrInvalidAuthCtxType = errors.New("invalid authCtx type")
+
+	ErrMisconfiguredPolicyType = errors.New("Policy Type missing SetAuthCtx method")
+
+	ErrPolicyNotFound = errors.New("Policy Not Found")
+
+	ErrRuleArgsLenMismatch = errors.New("Rule args length are not equal")
+
+	ErrRuleArgItemMismatch = errors.New("Rule args item don't match")
 )
 
-var AuthCtxKey = "GoAuthzCtx"
+var (
+	AuthCtxKey = "GoAuthzCtx"
+
+	AuthCtxPolicyField = "AuthCtx"
+)
+
+type PolicyFn func() interface{}
+
+type PoliciesFn map[string]PolicyFn
 
 type AuthorizerOptions struct {
 	authCtxKey  string
-	authCtxType string
-
 	metricsPort string
 
 	initialPoolSize int
@@ -46,8 +66,9 @@ type Authorizer struct {
 	metrics  *metrics
 	Registry prometheus.Registerer
 
-	mu          sync.Mutex
-	policyStore map[string]interface{}
+	mu            sync.Mutex
+	policyStore   map[string]interface{}
+	policyFactory map[string]PolicyFn
 }
 
 func NewAuthorizer(opts *AuthorizerOptions) *Authorizer {
@@ -80,60 +101,72 @@ func NewAuthorizer(opts *AuthorizerOptions) *Authorizer {
 	}
 
 	return &Authorizer{
-		opts:     opts,
-		metrics:  m,
-		Registry: reg,
+		opts:          opts,
+		metrics:       m,
+		Registry:      reg,
+		policyFactory: make(map[string]PolicyFn),
 	}
 }
 
 func (a *Authorizer) SetAuthCtx(ctx context.Context, authCtx interface{}) context.Context {
-	return context.WithValue(ctx, AuthCtxKey, authCtx)
+	return context.WithValue(ctx, a.opts.authCtxKey, authCtx)
 }
 
-func (a *Authorizer) Authorize(ctx context.Context, resource, policy, rule string) error {
+func (a *Authorizer) Authorize(ctx context.Context, resource interface{}, policyID, rule string, args ...interface{}) error {
 	startTime := time.Now()
-	defer a.recordObservation(startTime, policy, rule)
+	defer a.recordObservation(startTime, policyID, rule)
 
-	// 1. Retrieve Policy from pool.
+	// Retrieve Policy
+	// 1.0 Retrieve Policy from factory
+	policyFn, ok := a.policyFactory[policyID]
+	if !ok {
+		return ErrPolicyNotFound
+	}
 
-	// 2. Validate authCtx
+	policy := policyFn()
 
-	// 3. Validate resource.
+	// 1.1 Retrieve inner policy type.
+	pV := reflect.ValueOf(policy)
 
-	// 4. Invoke rule on policy.
+	// Configure Policy
+	// 2.0 Assert authCtx
+	authCtx := ctx.Value(a.opts.authCtxKey)
 
-	// 1. reflect policy struct.
-	v := reflect.ValueOf(policy)
+	if err := a.validateAuthCtx(authCtx); err != nil {
+		return err
+	}
 
-	// 2. normalize method name.
-	rule = strcase.ToCamel(rule)
+	authCtxValue := reflect.ValueOf(authCtx)
+	policyAuthCtxField := pV.Elem().FieldByName(AuthCtxPolicyField)
 
-	// 3. retrieve the rule method from the policy struct.
-	me := v.MethodByName(rule)
-	if !me.IsValid() {
+	if policyAuthCtxField.Kind() == reflect.Invalid {
+		return ErrInvalidAuthCtx
+	}
+
+	if authCtxValue.Type() != policyAuthCtxField.Type() {
+		return ErrAuthCtxTypeMismatch
+	}
+
+	policyAuthCtxField.Set(authCtxValue)
+
+	// Call Rule.
+	// 3.0 normalize method name.
+	rm := strcase.ToCamel(rule)
+
+	// 3.1 retrieve method func from policy type.
+	mFn := pV.MethodByName(rm)
+	if !mFn.IsValid() {
 		return ErrMethodNotAvailable
 	}
 
-	// 4. Validate resource
-	mT := me.Type().In(1).Name()
-	argT := reflect.TypeOf(resource).Name()
-
-	if mT != argT {
-		return ErrInvalidResource
-	}
-
-	in := []reflect.Value{
-		reflect.ValueOf(ctx),
-		reflect.ValueOf(resource),
+	rArgs := a.buildArgs(ctx, args)
+	if err := a.validateRuleArgs(mFn, rArgs); err != nil {
+		return err
 	}
 
 	// 5. Return error
-	ret := me.Call(in)
-
-	if len(ret) > 1 {
-		// error.
-	}
-	errI := ret[0].Interface()
+	errV := mFn.Call(rArgs)[0]
+	errI := errV.Interface()
 
 	err, ok := errI.(error)
 	if !ok {
@@ -143,9 +176,59 @@ func (a *Authorizer) Authorize(ctx context.Context, resource, policy, rule strin
 	return err
 }
 
-func (a *Authorizer) RegisterPolicy(name string, policy interface{}) error {
-	// TODO(subomi): Add locks
-	a.policyStore[name] = policy
+func (a *Authorizer) validateAuthCtx(authCtx interface{}) error {
+	valueOf := reflect.ValueOf(authCtx)
+	if authCtx == nil || (valueOf.Kind() == reflect.Ptr && valueOf.IsNil()) {
+		return ErrInvalidAuthCtx
+	}
+
+	return nil
+}
+
+func (a *Authorizer) buildArgs(ctx context.Context, args ...interface{}) []reflect.Value {
+	retVal := []reflect.Value{
+		reflect.ValueOf(ctx),
+	}
+
+	for i := 0; i < len(args); i++ {
+		retVal = append(retVal, reflect.ValueOf(args[i]))
+	}
+
+	return retVal
+}
+
+func (a *Authorizer) validateRuleArgs(fn reflect.Value, args []reflect.Value) error {
+	fnType := fn.Type()
+	argCount := fnType.NumIn()
+
+	if argCount != len(args) {
+		return ErrRuleArgsLenMismatch
+	}
+
+	for i := 0; i < fnType.NumIn(); i++ {
+		argT := fnType.In(i)
+
+		if argT.Kind() == args[i].Type().Kind() {
+			return ErrRuleArgItemMismatch
+		}
+	}
+
+	return nil
+}
+
+func (a *Authorizer) RegisterPolicy(name string, policyFn PolicyFn) error {
+	return nil
+}
+
+func (a *Authorizer) RegisterPolicies(policies PoliciesFn) error {
+	return nil
+}
+
+func (a *Authorizer) registerpolicy(name string, policyFn PolicyFn) error {
+	// TODO(subomi): Add locks.
+	// TODO(subomi): Validate the policy type has AuthCtx Field.
+	// TODO(subomi): Validate policyFn is not nil.
+	a.policyFactory[name] = policyFn
 	return nil
 }
 
