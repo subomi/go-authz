@@ -9,7 +9,12 @@ import (
 )
 
 type project struct{}
-type object struct{}
+type projectPolicy struct {
+	*BasePolicy
+
+	name string
+}
+
 type authCtx struct{}
 
 func (a *authCtx) Role() error {
@@ -30,8 +35,16 @@ func CreateProjectRule(ctx context.Context, project interface{}) error {
 }
 
 func Test_Authorize(t *testing.T) {
+	policy := &projectPolicy{
+		name:       "project",
+		BasePolicy: NewBasePolicy(),
+	}
+
+	policy.SetRule("project.create", RuleFunc(CreateProjectRule))
+
 	tests := map[string]struct {
 		authCtx       interface{}
+		policy        Policy
 		rule          string
 		resource      interface{}
 		assertion     require.ErrorAssertionFunc
@@ -39,9 +52,10 @@ func Test_Authorize(t *testing.T) {
 	}{
 		"should_return_error_when_rule_is_not_found": {
 			authCtx:       &authCtx{},
-			rule:          "invalid.rule",
+			policy:        policy,
+			rule:          "rule",
 			resource:      nil,
-			assertion:     require.NoError,
+			assertion:     require.Error,
 			expectedError: ErrRuleNotFound,
 		},
 	}
@@ -49,7 +63,9 @@ func Test_Authorize(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			authz := NewAuthz(&AuthzOpts{})
+			authz, _ := NewAuthz(&AuthzOpts{})
+			authz.RegisterPolicy("project", policy)
+
 			ctx := authz.SetAuthCtx(context.Background(), tc.authCtx)
 
 			// Act.

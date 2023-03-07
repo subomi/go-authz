@@ -9,12 +9,15 @@ import (
 
 var (
 	// ErrRuleNotFound is the error we return when we can't find a method on a policy.
-	ErrRuleNotFound = errors.New("method not found on policy")
+	ErrRuleNotFound = errors.New("rule not found on policy")
 
 	ErrPolicyAlreadyRegistered = errors.New("Policy already in policy store")
 )
 
-var AuthCtxKey = "GoAuthzCtx"
+const (
+	AuthCtxKey       = "GoAuthzCtx"
+	DefaultSeperator = "."
+)
 
 type AuthzOpts struct {
 	authCtxKey string
@@ -28,11 +31,31 @@ type Authz struct {
 	policyStore   map[string]Policy
 }
 
-func NewAuthz(opts *AuthzOpts) *Authz {
-	return &Authz{
-		opts:          opts,
-		defaultPolicy: &DefaultPolicy{},
+func NewAuthz(opts *AuthzOpts) (*Authz, error) {
+	if isStringEmpty(opts.seperator) {
+		opts.seperator = DefaultSeperator
 	}
+
+	if isStringEmpty(opts.authCtxKey) {
+		opts.authCtxKey = AuthCtxKey
+	}
+
+	defaultPolicy := &DefaultPolicy{
+		BasePolicy: NewBasePolicy(),
+	}
+
+	authz := &Authz{
+		opts:          opts,
+		defaultPolicy: defaultPolicy,
+		policyStore:   make(map[string]Policy),
+	}
+
+	err := authz.RegisterPolicy("default", defaultPolicy)
+	if err != nil {
+		return nil, err
+	}
+
+	return authz, nil
 }
 
 func (a *Authz) SetAuthCtx(ctx context.Context, authCtx interface{}) context.Context {
@@ -42,13 +65,17 @@ func (a *Authz) SetAuthCtx(ctx context.Context, authCtx interface{}) context.Con
 func (a *Authz) Authorize(ctx context.Context, ruleName string, res interface{}) error {
 	var po Policy
 
-	namespace, rule := a.parseRuleName(ruleName)
+	namespace, rule, _ := a.parseRuleName(ruleName)
 
 	for k, v := range a.policyStore {
 		if k == namespace {
 			po = v
 			break
 		}
+	}
+
+	if po == nil {
+		po = a.defaultPolicy
 	}
 
 	ruleFn, err := po.GetRule(rule)
@@ -60,6 +87,10 @@ func (a *Authz) Authorize(ctx context.Context, ruleName string, res interface{})
 }
 
 func (a *Authz) RegisterRule(name string, rule Rule) {
+	namespace, _, n := a.parseRuleName(name)
+	if n == 1 {
+		name = strings.Join([]string{"default", namespace}, ".")
+	}
 	a.defaultPolicy.SetRule(name, rule)
 }
 
@@ -73,9 +104,15 @@ func (a *Authz) RegisterPolicy(namespace string, policy Policy) error {
 	return nil
 }
 
-func (a *Authz) parseRuleName(ruleName string) (string, string) {
+func (a *Authz) parseRuleName(ruleName string) (string, string, int) {
 	parts := strings.SplitN(ruleName, a.opts.seperator, 2)
-	return parts[0], parts[1:][0]
+	rem := ""
+
+	if len(parts) > 1 {
+		rem = parts[1:][0]
+	}
+
+	return parts[0], rem, len(parts)
 }
 
 type Policy interface {
@@ -84,16 +121,22 @@ type Policy interface {
 	SetRule(name string, rule Rule)
 }
 
-type basePolicy struct {
+type BasePolicy struct {
 	mu    sync.Mutex
 	store RuleStore
 }
 
-func (bP *basePolicy) SetRule(name string, rule Rule) {
+func NewBasePolicy() *BasePolicy {
+	return &BasePolicy{
+		store: make(RuleStore),
+	}
+}
+
+func (bP *BasePolicy) SetRule(name string, rule Rule) {
 	bP.store[name] = rule
 }
 
-func (bP *basePolicy) GetRule(name string) (Rule, error) {
+func (bP *BasePolicy) GetRule(name string) (Rule, error) {
 	rule, ok := bP.store[name]
 	if !ok {
 		return nil, ErrRuleNotFound
@@ -102,25 +145,12 @@ func (bP *basePolicy) GetRule(name string) (Rule, error) {
 	return rule, nil
 }
 
-func (bP *basePolicy) GetRules() RuleStore {
+func (bP *BasePolicy) GetRules() RuleStore {
 	return bP.store
 }
 
-// TODO(subomi): Apply mutex
 type DefaultPolicy struct {
-	basePolicy
+	*BasePolicy
 }
 
-type ProjectPolicy struct {
-	basePolicy
-}
-
-func NewProjectPolicy() *ProjectPolicy {
-	pp := &ProjectPolicy{}
-
-	pp.SetRule("project.create", RuleFunc(func(ctx context.Context, res interface{}) error {
-		return nil
-	}))
-
-	return pp
-}
+func isStringEmpty(s string) bool { return len(strings.TrimSpace(s)) == 0 }
