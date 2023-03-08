@@ -3,6 +3,7 @@ package goauthz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -12,6 +13,8 @@ var (
 	ErrRuleNotFound = errors.New("rule not found on policy")
 
 	ErrPolicyAlreadyRegistered = errors.New("Policy already in policy store")
+
+	ErrInvalidRuleName = errors.New("Rule name provided was invalid")
 )
 
 const (
@@ -63,16 +66,13 @@ func (a *Authz) SetAuthCtx(ctx context.Context, authCtx interface{}) context.Con
 }
 
 func (a *Authz) Authorize(ctx context.Context, ruleName string, res interface{}) error {
-	var po Policy
-
-	namespace, rule, _ := a.parseRuleName(ruleName)
-
-	for k, v := range a.policyStore {
-		if k == namespace {
-			po = v
-			break
-		}
+	namespace, rule, n := a.parseRuleName(ruleName)
+	if n == 0 {
+		return ErrInvalidRuleName
 	}
+
+	var po Policy
+	po = a.policyLookup(namespace)
 
 	if po == nil {
 		po = a.defaultPolicy
@@ -86,12 +86,19 @@ func (a *Authz) Authorize(ctx context.Context, ruleName string, res interface{})
 	return ruleFn.Authorize(ctx, res)
 }
 
-func (a *Authz) RegisterRule(name string, rule Rule) {
+func (a *Authz) RegisterRule(name string, rule Rule) error {
 	namespace, _, n := a.parseRuleName(name)
-	if n == 1 {
-		name = strings.Join([]string{"default", namespace}, ".")
+	if n == 0 {
+		return ErrInvalidRuleName
 	}
-	a.defaultPolicy.SetRule(name, rule)
+
+	po := a.policyLookup(namespace)
+	if po == nil {
+		po = a.defaultPolicy
+	}
+
+	po.SetRule(name, rule)
+	return nil
 }
 
 func (a *Authz) RegisterPolicy(namespace string, policy Policy) error {
@@ -104,15 +111,30 @@ func (a *Authz) RegisterPolicy(namespace string, policy Policy) error {
 	return nil
 }
 
-func (a *Authz) parseRuleName(ruleName string) (string, string, int) {
-	parts := strings.SplitN(ruleName, a.opts.seperator, 2)
-	rem := ""
-
-	if len(parts) > 1 {
-		rem = parts[1:][0]
+func (a *Authz) policyLookup(namespace string) Policy {
+	var po Policy
+	for k, v := range a.policyStore {
+		if k == namespace {
+			po = v
+			break
+		}
 	}
 
-	return parts[0], rem, len(parts)
+	return po
+}
+
+func (a *Authz) parseRuleName(ruleName string) (string, string, int) {
+	if isStringEmpty(ruleName) {
+		return "", "", 0
+	}
+
+	parts := strings.SplitN(ruleName, a.opts.seperator, 2)
+
+	if len(parts) == 1 {
+		return "", parts[0], 1
+	}
+
+	return parts[0], parts[1:][0], len(parts)
 }
 
 type Policy interface {
@@ -137,6 +159,7 @@ func (bP *BasePolicy) SetRule(name string, rule Rule) {
 }
 
 func (bP *BasePolicy) GetRule(name string) (Rule, error) {
+	fmt.Println(name)
 	rule, ok := bP.store[name]
 	if !ok {
 		return nil, ErrRuleNotFound

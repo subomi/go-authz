@@ -8,24 +8,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type project struct{}
 type projectPolicy struct {
 	*BasePolicy
 
 	name string
 }
 
-type authCtx struct{}
-
-func (a *authCtx) Role() error {
-	return nil
+type authCtx struct {
+	Role string
 }
 
-func CreateProjectRule(ctx context.Context, project interface{}) error {
+type resource struct{}
+
+func CreateResourceRule(ctx context.Context, project interface{}) error {
 	// retrieve authCtx
 	authCtx := ctx.Value(AuthCtxKey).(*authCtx)
 
-	if authCtx.Role() != nil {
+	if authCtx.Role != "Admin" {
 		// refuse access.
 		return errors.New("Unauthorised")
 	}
@@ -35,16 +34,8 @@ func CreateProjectRule(ctx context.Context, project interface{}) error {
 }
 
 func Test_Authorize(t *testing.T) {
-	policy := &projectPolicy{
-		name:       "project",
-		BasePolicy: NewBasePolicy(),
-	}
-
-	policy.SetRule("project.create", RuleFunc(CreateProjectRule))
-
 	tests := map[string]struct {
 		authCtx       interface{}
-		policy        Policy
 		rule          string
 		resource      interface{}
 		assertion     require.ErrorAssertionFunc
@@ -52,11 +43,27 @@ func Test_Authorize(t *testing.T) {
 	}{
 		"should_return_error_when_rule_is_not_found": {
 			authCtx:       &authCtx{},
-			policy:        policy,
 			rule:          "rule",
 			resource:      nil,
 			assertion:     require.Error,
 			expectedError: ErrRuleNotFound,
+		},
+		"should_return_unauthorized_error_when_rule_fails": {
+			authCtx: &authCtx{
+				Role: "Guest",
+			},
+			rule:      "create-resource",
+			resource:  &resource{},
+			assertion: require.Error,
+		},
+		"should_return_nil_error_when_rule_passes": {
+			authCtx: &authCtx{
+				Role: "Admin",
+			},
+			rule:          "create-resource",
+			resource:      &resource{},
+			assertion:     require.NoError,
+			expectedError: nil,
 		},
 	}
 
@@ -64,7 +71,7 @@ func Test_Authorize(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			authz, _ := NewAuthz(&AuthzOpts{})
-			authz.RegisterPolicy("project", policy)
+			_ = authz.RegisterRule("create-resource", RuleFunc(CreateResourceRule))
 
 			ctx := authz.SetAuthCtx(context.Background(), tc.authCtx)
 
