@@ -5,7 +5,9 @@
 package main
 
 // Policy Definition
-type ProjectPolicy {}
+type ProjectPolicy {
+    *authz.BasePolicy
+}
 
 func (pp *ProjectPolicy) GetAll(ctx context.Context) error {
     // logic for granting access.
@@ -16,14 +18,42 @@ func (pp *ProjectPolicy) Delete(ctx context.Context, p Project) error {
     return nil
 }
 
+func (pp *ProjectPolicy) GetName() string {
+    return "project"
+}
+
+func ApproveGuestAccess(ctx context.Context, resource interface{}) error {
+    return nil
+}
+
 func main() {
-    a := authz.NewAuthorizer()
+    a := authz.NewAuthz(&AuthzOpts{})
+
+    // Register a rule on the default policy.
+    err := authz.RegisterRule("validate-guess-access", authz.RuleFunc(ApproveGuestAccess))
+
+
+    // Register a policy.
+    err := authz.RegisterPolicy(func() authz.Policy {
+        po := &ProjectPolicy{
+            BasePolicy: NewBasePolicy(),
+        }
+
+        po.SetRule("getall", authz.RuleFunc(po.GetAll))
+        po.SetRule("delete", authz.RuleFunc(po.Delete))
+
+        return po
+    }
+
+    if err != nil {
+       return err 
+    }
 
     // Set authCtx in context ideally immediately after authentication.
-    err := a.SetAuthCtx(r.Context(), authCtx)
+    ctx := a.SetAuthCtx(r.Context(), authCtx)
 
     // Grant or Deny Permission
-    err := a.Authorize(ctx, resource, policy, method)
+    err := a.Authorize(ctx, "project.create", resource)
     if err != nil {
 	    // access denied
 	    return err
