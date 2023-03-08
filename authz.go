@@ -3,7 +3,6 @@ package goauthz
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 )
@@ -53,7 +52,7 @@ func NewAuthz(opts *AuthzOpts) (*Authz, error) {
 		policyStore:   make(map[string]Policy),
 	}
 
-	err := authz.RegisterPolicy("default", defaultPolicy)
+	err := authz.RegisterPolicy(defaultPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +100,13 @@ func (a *Authz) RegisterRule(name string, rule Rule) error {
 	return nil
 }
 
-func (a *Authz) RegisterPolicy(namespace string, policy Policy) error {
-	_, ok := a.policyStore[namespace]
+func (a *Authz) RegisterPolicy(po Policy) error {
+	_, ok := a.policyStore[po.GetName()]
 	if ok {
 		return ErrPolicyAlreadyRegistered
 	}
 
-	a.policyStore[namespace] = policy
+	a.policyStore[po.GetName()] = po
 	return nil
 }
 
@@ -138,6 +137,7 @@ func (a *Authz) parseRuleName(ruleName string) (string, string, int) {
 }
 
 type Policy interface {
+	GetName() string
 	GetRule(name string) (Rule, error)
 	GetRules() RuleStore
 	SetRule(name string, rule Rule)
@@ -159,7 +159,6 @@ func (bP *BasePolicy) SetRule(name string, rule Rule) {
 }
 
 func (bP *BasePolicy) GetRule(name string) (Rule, error) {
-	fmt.Println(name)
 	rule, ok := bP.store[name]
 	if !ok {
 		return nil, ErrRuleNotFound
@@ -174,6 +173,10 @@ func (bP *BasePolicy) GetRules() RuleStore {
 
 type DefaultPolicy struct {
 	*BasePolicy
+}
+
+func (df *DefaultPolicy) GetName() string {
+	return "default"
 }
 
 func isStringEmpty(s string) bool { return len(strings.TrimSpace(s)) == 0 }
