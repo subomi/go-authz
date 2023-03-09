@@ -1,5 +1,5 @@
 # go-authz
-go-authz is an authorization library based on policies and rule functions. The goal is to have declarative policies in go alongside a simple API for all authorization functions.
+`go-authz` is an authorization library based on policies and rule functions. The goal is to have declarative policies in go alongside a simple API for all authorization functions.
 
 ## Installation
 ```bash
