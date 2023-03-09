@@ -50,7 +50,7 @@ func main() {
     }
 
     // Set authCtx in context ideally immediately after authentication.
-    ctx := a.SetAuthCtx(r.Context(), authCtx)
+    ctx := a.SetAuthCtx(r.Context(), authUser)
 
     // Grant or Deny Permission
     err := a.Authorize(ctx, "project.create", resource)
