@@ -1,6 +1,12 @@
 # go-authz
+`go-authz` is an authorization library based on policies and rule functions. The goal is to have declarative policies in go alongside a simple API for all authorization functions.
 
+## Installation
+```bash
+ $ go get github.com/Subomi/go-authz
+```
 
+## Usage
 ```go
 package main
 
@@ -50,7 +56,7 @@ func main() {
     }
 
     // Set authCtx in context ideally immediately after authentication.
-    ctx := a.SetAuthCtx(r.Context(), authCtx)
+    ctx := a.SetAuthCtx(r.Context(), authUser)
 
     // Grant or Deny Permission
     err := a.Authorize(ctx, "project.create", resource)
