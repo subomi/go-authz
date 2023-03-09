@@ -1,4 +1,4 @@
-# go-authz
+# go-authz <br /> [![Go Reference](https://pkg.go.dev/badge/github.com/Subomi/go-authz.svg)](https://pkg.go.dev/github.com/Subomi/go-authz)
 `go-authz` is an authorization library based on policies and rule functions. The goal is to have declarative policies in go alongside one simple API for granting and denying access.
 
 ## Installation
