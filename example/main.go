@@ -19,7 +19,10 @@ type authzCtx struct {
 }
 
 func main() {
-	a := authz.NewAuthz(&authz.AuthzOpts{})
+	a, err := authz.NewAuthz(&authz.AuthzOpts{})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Register Rules.
 	rule := authz.RuleFunc(func(ctx context.Context, resource interface{}) error {
