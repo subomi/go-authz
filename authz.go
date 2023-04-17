@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 )
 
 var (
@@ -16,13 +15,15 @@ var (
 	ErrInvalidRuleName = errors.New("Rule name provided was invalid")
 )
 
+type AuthCtxType string
+
 const (
-	AuthCtxKey       = "GoAuthzCtx"
-	DefaultSeperator = "."
+	AuthCtxKey       AuthCtxType = "GoAuthzCtx"
+	DefaultSeperator             = "."
 )
 
 type AuthzOpts struct {
-	AuthCtxKey string
+	AuthCtxKey AuthCtxType
 	Seperator  string
 }
 
@@ -38,7 +39,7 @@ func NewAuthz(opts *AuthzOpts) (*Authz, error) {
 		opts.Seperator = DefaultSeperator
 	}
 
-	if isStringEmpty(opts.AuthCtxKey) {
+	if isStringEmpty(string(opts.AuthCtxKey)) {
 		opts.AuthCtxKey = AuthCtxKey
 	}
 
@@ -144,7 +145,6 @@ type Policy interface {
 }
 
 type BasePolicy struct {
-	mu    sync.Mutex
 	store RuleStore
 }
 
