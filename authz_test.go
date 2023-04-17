@@ -8,12 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type projectPolicy struct {
-	*BasePolicy
-
-	name string
-}
-
 type authCtx struct {
 	Role string
 }
@@ -92,15 +86,15 @@ func (ip *InvalidPolicy) GetName() string {
 	return "invalid"
 }
 
-type ProjectPolicy struct {
+type projectPolicy struct {
 	*BasePolicy
 }
 
-func (pp *ProjectPolicy) GetName() string {
+func (pp *projectPolicy) GetName() string {
 	return "project"
 }
 
-func (pp *ProjectPolicy) Create(ctx context.Context, res interface{}) error {
+func (pp *projectPolicy) Create(ctx context.Context, res interface{}) error {
 	return nil
 }
 
@@ -130,8 +124,8 @@ func Test_Authorize_With_Policy(t *testing.T) {
 		"should_return_nil_error_when_rule_passes": {
 			authCtx: &authCtx{},
 			policy: func() Policy {
-				newProjectPolicy := func() *ProjectPolicy {
-					po := &ProjectPolicy{
+				newprojectPolicy := func() *projectPolicy {
+					po := &projectPolicy{
 						BasePolicy: NewBasePolicy(),
 					}
 
@@ -139,7 +133,7 @@ func Test_Authorize_With_Policy(t *testing.T) {
 					return po
 				}
 
-				return newProjectPolicy()
+				return newprojectPolicy()
 			},
 			rule:          "project.create",
 			resource:      &resource{},

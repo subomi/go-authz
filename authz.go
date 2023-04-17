@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 )
 
 var (
@@ -16,14 +15,14 @@ var (
 	ErrInvalidRuleName = errors.New("Rule name provided was invalid")
 )
 
-const (
-	AuthCtxKey       = "GoAuthzCtx"
-	DefaultSeperator = "."
-)
+type AuthCtxType string
+
+const AuthCtxKey AuthCtxType = "GoAuthzCtx"
+const DefaultSeperator = "."
 
 type AuthzOpts struct {
-	authCtxKey string
-	seperator  string
+	AuthCtxKey AuthCtxType
+	Seperator  string
 }
 
 // Authz exposes a single API for authorization
@@ -34,12 +33,12 @@ type Authz struct {
 }
 
 func NewAuthz(opts *AuthzOpts) (*Authz, error) {
-	if isStringEmpty(opts.seperator) {
-		opts.seperator = DefaultSeperator
+	if isStringEmpty(opts.Seperator) {
+		opts.Seperator = DefaultSeperator
 	}
 
-	if isStringEmpty(opts.authCtxKey) {
-		opts.authCtxKey = AuthCtxKey
+	if isStringEmpty(string(opts.AuthCtxKey)) {
+		opts.AuthCtxKey = AuthCtxKey
 	}
 
 	defaultPolicy := &DefaultPolicy{
@@ -61,7 +60,7 @@ func NewAuthz(opts *AuthzOpts) (*Authz, error) {
 }
 
 func (a *Authz) SetAuthCtx(ctx context.Context, authCtx interface{}) context.Context {
-	return context.WithValue(ctx, a.opts.authCtxKey, authCtx)
+	return context.WithValue(ctx, a.opts.AuthCtxKey, authCtx)
 }
 
 func (a *Authz) Authorize(ctx context.Context, ruleName string, res interface{}) error {
@@ -127,7 +126,7 @@ func (a *Authz) parseRuleName(ruleName string) (string, string, int) {
 		return "", "", 0
 	}
 
-	parts := strings.SplitN(ruleName, a.opts.seperator, 2)
+	parts := strings.SplitN(ruleName, a.opts.Seperator, 2)
 
 	if len(parts) == 1 {
 		return "", parts[0], 1
@@ -144,7 +143,6 @@ type Policy interface {
 }
 
 type BasePolicy struct {
-	mu    sync.Mutex
 	store RuleStore
 }
 
