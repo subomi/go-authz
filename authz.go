@@ -17,10 +17,8 @@ var (
 
 type AuthCtxType string
 
-const (
-	AuthCtxKey       AuthCtxType = "GoAuthzCtx"
-	DefaultSeperator             = "."
-)
+const AuthCtxKey AuthCtxType = "GoAuthzCtx"
+const DefaultSeperator = "."
 
 type AuthzOpts struct {
 	AuthCtxKey AuthCtxType
