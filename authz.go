@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 )
 
 var (
@@ -29,7 +30,9 @@ type AuthzOpts struct {
 type Authz struct {
 	opts          *AuthzOpts
 	defaultPolicy Policy
-	policyStore   map[string]Policy
+
+	mu          sync.Mutex
+	policyStore map[string]Policy
 }
 
 func NewAuthz(opts *AuthzOpts) (*Authz, error) {
@@ -100,6 +103,9 @@ func (a *Authz) RegisterRule(name string, rule Rule) error {
 }
 
 func (a *Authz) RegisterPolicy(po Policy) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	_, ok := a.policyStore[po.GetName()]
 	if ok {
 		return ErrPolicyAlreadyRegistered
@@ -143,6 +149,7 @@ type Policy interface {
 }
 
 type BasePolicy struct {
+	mu    sync.Mutex
 	store RuleStore
 }
 
@@ -152,12 +159,15 @@ func NewBasePolicy() *BasePolicy {
 	}
 }
 
-func (bP *BasePolicy) SetRule(name string, rule Rule) {
-	bP.store[name] = rule
+func (bp *BasePolicy) SetRule(name string, rule Rule) {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+
+	bp.store[name] = rule
 }
 
-func (bP *BasePolicy) GetRule(name string) (Rule, error) {
-	rule, ok := bP.store[name]
+func (bp *BasePolicy) GetRule(name string) (Rule, error) {
+	rule, ok := bp.store[name]
 	if !ok {
 		return nil, ErrRuleNotFound
 	}
@@ -165,8 +175,8 @@ func (bP *BasePolicy) GetRule(name string) (Rule, error) {
 	return rule, nil
 }
 
-func (bP *BasePolicy) GetRules() RuleStore {
-	return bP.store
+func (bp *BasePolicy) GetRules() RuleStore {
+	return bp.store
 }
 
 type DefaultPolicy struct {
